@@ -1,0 +1,87 @@
+name: Build Odysseus Portable - Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - '.github/workflows/build-windows-portable.yml'
+      - 'build-windows-portable.ps1'
+      - 'launcher.py'
+      - 'requirements*.txt'
+      - 'src/**'
+      - 'core/**'
+      - 'services/**'
+      - 'static/**'
+      - 'scripts/**'
+      - 'mcp_servers/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odysseus-windows-portable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build portable Windows bundle
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python for the build only
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Show build environment
+        shell: pwsh
+        run: |
+          python --version
+          python -m pip --version
+          git --version
+
+      - name: Build Odysseus portable application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./build-windows-portable.ps1
+
+      - name: Verify and archive portable bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $PWD 'dist\Odysseus'
+          $exe = Join-Path $bundle 'Odysseus.exe'
+
+          if (-not (Test-Path $exe -PathType Leaf)) {
+            throw "Build did not produce $exe"
+          }
+          foreach ($required in @('static', 'scripts', 'mcp_servers', '_internal')) {
+            $path = Join-Path $bundle $required
+            if (-not (Test-Path $path)) {
+              Write-Warning "Expected portable component not found: $required"
+            }
+          }
+
+          $zip = Join-Path $PWD 'dist\Odysseus-Windows-Portable.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $bundle -DestinationPath $zip -CompressionLevel Optimal
+
+          Write-Host "Portable bundle created: $zip"
+          Get-Item $zip | Format-List FullName, Length
+
+      - name: Upload portable application
+        uses: actions/upload-artifact@v6
+        with:
+          name: Odysseus-Windows-Portable
+          path: dist/Odysseus-Windows-Portable.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
