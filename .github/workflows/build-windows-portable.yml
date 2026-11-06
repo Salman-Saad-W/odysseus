@@ -43,9 +43,30 @@ jobs:
       - name: Show build environment
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python --version
           python -m pip --version
           git --version
+
+      # Important: build-windows-portable.ps1 checks .venv first. Without this
+      # pre-created venv, its fallback can call the Windows `py` launcher, which
+      # may select a newer system Python (e.g. 3.15) instead of setup-python's
+      # selected 3.11. The project's faster-whisper dependency pins av==10.*;
+      # PyAV 10 has CPython 3.11 wheels, avoiding an incompatible source build.
+      - name: Create virtual environment with the selected Python 3.11
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = python --version
+          if ($version -notmatch '^Python 3\.11\.') {
+            throw "Expected Python 3.11 from setup-python, got: $version"
+          }
+          if (Test-Path '.venv') {
+            Remove-Item '.venv' -Recurse -Force
+          }
+          python -m venv .venv
+          .\.venv\Scripts\python.exe --version
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
 
       - name: Build Odysseus portable application
         shell: pwsh
